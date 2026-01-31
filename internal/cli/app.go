@@ -11,6 +11,7 @@ import (
 	"ollama-cli/internal/llm"
 	"ollama-cli/internal/mcp"
 	"ollama-cli/internal/prompt"
+	"ollama-cli/internal/prompts"
 	"ollama-cli/internal/tools"
 )
 
@@ -39,15 +40,13 @@ func New() *App {
 			mcp.NewFilesystemProvider(config.MaxFiles, config.MaxDepth),
 			mcp.NewGitProvider(),
 		},
-		builder: prompt.NewBuilder(config.SystemPrompt),
+		builder: prompt.NewBuilder(prompts.SystemPrompt),
 	}
 }
 
 func NewWithPrompt(promptName string) *App {
 	app := New()
-	if p, ok := config.Prompts[promptName]; ok {
-		app.builder = prompt.NewBuilder(p)
-	}
+	app.builder = prompt.NewBuilder(prompts.Get(promptName))
 	return app
 }
 
