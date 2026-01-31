@@ -57,25 +57,14 @@ func (a *App) Run(ctx context.Context, task string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	// 1. Detectar si el usuario menciona archivos específicos
-	fileContents := a.extractFileContents(task)
-
-	// 2. Gather context from all providers
-	fmt.Fprintln(os.Stderr, "Recopilando contexto...")
+	// 1. Recopilar contexto automáticamente (lee archivos del proyecto)
+	fmt.Fprintln(os.Stderr, "Leyendo proyecto...")
 	contexts := a.gatherContext(ctx, workDir)
 
-	// 3. Agregar contenido de archivos mencionados
-	if len(fileContents) > 0 {
-		contexts = append(contexts, mcp.ContextResult{
-			Provider: "archivos-leidos",
-			Content:  fileContents,
-		})
-	}
-
-	// 4. Build prompt
+	// 2. Construir prompt
 	system, user := a.builder.Build(contexts, task)
 
-	// 5. Stream response y capturar para detectar código
+	// 3. Stream response y capturar para detectar código
 	fmt.Fprintln(os.Stderr, "---")
 	var fullResponse strings.Builder
 
@@ -93,7 +82,7 @@ func (a *App) Run(ctx context.Context, task string) error {
 		return err
 	}
 
-	// 6. Detectar bloques de código y ofrecer guardar
+	// 4. Detectar bloques de código y ofrecer guardar
 	a.offerToSaveCodeBlocks(fullResponse.String())
 
 	return nil
@@ -101,18 +90,11 @@ func (a *App) Run(ctx context.Context, task string) error {
 
 // offerToSaveCodeBlocks detecta bloques de código en la respuesta y ofrece guardarlos
 func (a *App) offerToSaveCodeBlocks(response string) {
-	// Buscar bloques de código con nombre de archivo
-	// Patrones como: ```go:filename.go o <!-- filename.go --> o // filename.go
 	patterns := []*regexp.Regexp{
-		// ```lang:filename.ext
 		regexp.MustCompile("```\\w*:([\\w\\-./]+\\.[\\w]+)\\s*\\n([\\s\\S]*?)```"),
-		// ```lang filename.ext
 		regexp.MustCompile("```\\w*\\s+([\\w\\-./]+\\.[\\w]+)\\s*\\n([\\s\\S]*?)```"),
-		// **filename.ext** seguido de bloque de código
 		regexp.MustCompile("\\*\\*([\\w\\-./]+\\.[\\w]+)\\*\\*[:\\s]*\\n```\\w*\\n([\\s\\S]*?)```"),
-		// `filename.ext`: seguido de bloque de código
 		regexp.MustCompile("`([\\w\\-./]+\\.[\\w]+)`[:\\s]*\\n```\\w*\\n([\\s\\S]*?)```"),
-		// Archivo: filename.ext seguido de bloque
 		regexp.MustCompile("(?i)(?:archivo|file)[:\\s]+([\\w\\-./]+\\.[\\w]+)\\s*\\n```\\w*\\n([\\s\\S]*?)```"),
 	}
 
@@ -125,7 +107,6 @@ func (a *App) offerToSaveCodeBlocks(response string) {
 				filename := match[1]
 				content := strings.TrimSpace(match[2])
 
-				// Evitar duplicados
 				if savedFiles[filename] {
 					continue
 				}
@@ -142,48 +123,6 @@ func (a *App) offerToSaveCodeBlocks(response string) {
 			}
 		}
 	}
-}
-
-// extractFileContents detecta menciones a archivos y pregunta si leerlos
-func (a *App) extractFileContents(task string) string {
-	patterns := []string{
-		`[\w\-./]+\.(go|js|ts|py|java|c|cpp|h|rs|rb|php|html|css|json|yaml|yml|md|txt|sh|sql)`,
-	}
-
-	var files []string
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindAllString(task, -1)
-		files = append(files, matches...)
-	}
-
-	if len(files) == 0 {
-		return ""
-	}
-
-	// Eliminar duplicados
-	seen := make(map[string]bool)
-	var unique []string
-	for _, f := range files {
-		if !seen[f] {
-			seen[f] = true
-			unique = append(unique, f)
-		}
-	}
-
-	var contents []string
-	for _, file := range unique {
-		if tools.AskConfirmation(fmt.Sprintf("¿Leer archivo '%s'?", file)) {
-			content, err := tools.ReadFile(file)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, " No se pudo leer %s: %v\n", file, err)
-				continue
-			}
-			contents = append(contents, fmt.Sprintf("### Archivo: %s\n```\n%s\n```", file, content))
-		}
-	}
-
-	return strings.Join(contents, "\n\n")
 }
 
 func (a *App) GetModel() string {

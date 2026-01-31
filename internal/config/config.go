@@ -10,11 +10,11 @@ var Model = "qwen2.5-coder:14b"
 // URL del servidor Ollama
 var OllamaURL = "http://localhost:11434"
 
-// Máximo de archivos a mostrar en el contexto
-var MaxFiles = 50
+// Máximo de archivos a leer (contenido completo)
+var MaxFiles = 30
 
 // Profundidad máxima de carpetas a explorar
-var MaxDepth = 3
+var MaxDepth = 4
 
 // ============================================================================
 // PROMPTS DEL SISTEMA - Personaliza el comportamiento del asistente
