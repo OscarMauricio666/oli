@@ -40,6 +40,16 @@ func main() {
 			}
 			listDirCmd(path)
 			return
+		case "repos":
+			listReposCmd()
+			return
+		case "repo":
+			if len(os.Args) >= 3 {
+				reviewRepoCmd(ctx, os.Args[2], strings.Join(os.Args[3:], " "))
+			} else {
+				fmt.Println("Uso: oli repo <usuario/repo> [pregunta]")
+			}
+			return
 		}
 	}
 
@@ -68,7 +78,7 @@ func main() {
 
 func runInteractive(ctx context.Context, app *cli.App) {
 	fmt.Printf("\n oli (%s)\n", app.GetModel())
-	fmt.Println(" Comandos: salir | help | ls [dir] | read <archivo> | write <archivo>\n")
+	fmt.Println(" Comandos: help | repos | repo <nombre> | ls | read | write | salir\n")
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -93,7 +103,7 @@ func runInteractive(ctx context.Context, app *cli.App) {
 		}
 
 		// Procesar comandos especiales
-		if handled := handleCommand(input); handled {
+		if handled := handleCommand(ctx, app, input); handled {
 			continue
 		}
 
@@ -106,7 +116,7 @@ func runInteractive(ctx context.Context, app *cli.App) {
 	}
 }
 
-func handleCommand(input string) bool {
+func handleCommand(ctx context.Context, app *cli.App, input string) bool {
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
 		return false
@@ -167,6 +177,46 @@ func handleCommand(input string) bool {
 			}
 		}
 		return true
+
+	case "repos":
+		listReposCmd()
+		return true
+
+	case "repo":
+		if len(parts) >= 2 {
+			question := ""
+			if len(parts) >= 3 {
+				question = strings.Join(parts[2:], " ")
+			}
+			reviewRepoCmd(ctx, parts[1], question)
+		} else {
+			fmt.Println(" Uso: repo <usuario/repo> [pregunta]")
+		}
+		return true
+
+	case "clone":
+		if len(parts) >= 2 {
+			cloneRepoCmd(parts[1])
+		} else {
+			fmt.Println(" Uso: clone <usuario/repo>")
+		}
+		return true
+
+	case "issues":
+		if len(parts) >= 2 {
+			showIssuesCmd(parts[1])
+		} else {
+			fmt.Println(" Uso: issues <usuario/repo>")
+		}
+		return true
+
+	case "prs":
+		if len(parts) >= 2 {
+			showPRsCmd(parts[1])
+		} else {
+			fmt.Println(" Uso: prs <usuario/repo>")
+		}
+		return true
 	}
 
 	return false
@@ -220,6 +270,90 @@ func writeFileCmd(path string) {
 	fmt.Printf(" Archivo guardado: %s\n", path)
 }
 
+func listReposCmd() {
+	fmt.Println("\n Obteniendo repositorios...")
+	repos, err := tools.ListMyRepos(20)
+	if err != nil {
+		fmt.Printf(" Error: %v\n", err)
+		return
+	}
+	fmt.Println("\n Tus repositorios:")
+	fmt.Println("────────────────────────────────")
+	fmt.Println(repos)
+}
+
+func reviewRepoCmd(ctx context.Context, repo string, question string) {
+	fmt.Printf("\n Obteniendo info de %s...\n", repo)
+
+	info, err := tools.GetRepoInfo(repo)
+	if err != nil {
+		fmt.Printf(" Error: %v\n", err)
+		return
+	}
+
+	fmt.Println("────────────────────────────────")
+	fmt.Println(tools.FormatRepoInfo(info))
+	fmt.Println("────────────────────────────────")
+
+	// Si hay pregunta, enviar al modelo con contexto del repo
+	if question == "" {
+		question = "analiza este repositorio y dame un resumen de qué hace, su estructura y sugerencias de mejora"
+	}
+
+	// Crear app con contexto del repo
+	app := cli.New()
+	repoContext := tools.FormatRepoInfo(info)
+	if info.Readme != "" {
+		repoContext += "\n\nREADME:\n" + info.Readme
+	}
+
+	fullQuestion := fmt.Sprintf("Contexto del repositorio GitHub:\n%s\n\nPregunta: %s", repoContext, question)
+
+	if err := app.RunWithoutLocalContext(ctx, fullQuestion); err != nil {
+		fmt.Printf(" Error: %v\n", err)
+	}
+	fmt.Println()
+}
+
+func cloneRepoCmd(repo string) {
+	fmt.Printf("\n Clonando %s...\n", repo)
+	if err := tools.CloneRepo(repo, ""); err != nil {
+		fmt.Printf(" Error: %v\n", err)
+		return
+	}
+	fmt.Printf(" Repositorio clonado exitosamente\n")
+}
+
+func showIssuesCmd(repo string) {
+	fmt.Printf("\n Issues de %s:\n", repo)
+	fmt.Println("────────────────────────────────")
+	issues, err := tools.GetRepoIssues(repo)
+	if err != nil {
+		fmt.Printf(" Error: %v\n", err)
+		return
+	}
+	if issues == "" {
+		fmt.Println(" No hay issues abiertos")
+	} else {
+		fmt.Println(issues)
+	}
+}
+
+func showPRsCmd(repo string) {
+	fmt.Printf("\n Pull Requests de %s:\n", repo)
+	fmt.Println("────────────────────────────────")
+	prs, err := tools.GetRepoPRs(repo)
+	if err != nil {
+		fmt.Printf(" Error: %v\n", err)
+		return
+	}
+	if prs == "" {
+		fmt.Println(" No hay PRs abiertos")
+	} else {
+		fmt.Println(prs)
+	}
+}
+
 func showPrompts() {
 	fmt.Println("\n Prompts disponibles:")
 	fmt.Println(" ────────────────────")
@@ -235,34 +369,39 @@ func showHelp() {
  oli - Asistente de código con Ollama
 
  MODO INTERACTIVO:
-   oli                     Inicia modo interactivo
+   oli                       Inicia modo interactivo
 
- COMANDOS EN MODO INTERACTIVO:
-   help                    Esta ayuda
-   prompts                 Ver prompts disponibles
-   ls [dir]                Listar archivos
-   read <archivo>          Leer contenido de archivo
-   write <archivo>         Escribir archivo (con confirmación)
-   pwd                     Directorio actual
-   cd <dir>                Cambiar directorio
-   salir                   Salir
+ COMANDOS LOCALES:
+   help                      Esta ayuda
+   ls [dir]                  Listar archivos
+   read <archivo>            Leer archivo
+   write <archivo>           Escribir archivo
+   pwd                       Directorio actual
+   cd <dir>                  Cambiar directorio
+
+ COMANDOS GITHUB:
+   repos                     Listar mis repositorios
+   repo <user/repo>          Analizar repositorio
+   repo <user/repo> <pregunta>  Preguntar sobre repo
+   clone <user/repo>         Clonar repositorio
+   issues <user/repo>        Ver issues abiertos
+   prs <user/repo>           Ver PRs abiertos
 
  MODO DIRECTO:
-   oli <pregunta>          Pregunta única
-   oli read <archivo>      Leer archivo
-   oli ls [dir]            Listar directorio
+   oli <pregunta>            Pregunta única
+   oli repo <user/repo>      Analizar repo directamente
 
  CONFIGURACIÓN:
    Editar: internal/config/config.go
 
  VARIABLES DE ENTORNO:
-   OLLAMA_MODEL            Modelo a usar
-   OLLAMA_URL              URL de Ollama
-   OLI_PROMPT              Prompt (default, code-review, etc.)
+   OLLAMA_MODEL              Modelo a usar
+   OLLAMA_URL                URL de Ollama
+   OLI_PROMPT                Prompt a usar
 
  EJEMPLOS:
    oli que hace este proyecto
-   oli read main.go
-   OLI_PROMPT=code-review oli
+   oli repo OscarMauricio666/oli
+   oli repo facebook/react que tecnologias usa
 `)
 }

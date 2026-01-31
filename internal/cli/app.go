@@ -190,6 +190,31 @@ func (a *App) GetModel() string {
 	return a.model
 }
 
+// RunWithoutLocalContext ejecuta sin recopilar contexto local (para repos remotos)
+func (a *App) RunWithoutLocalContext(ctx context.Context, task string) error {
+	system, user := a.builder.Build(nil, task)
+
+	fmt.Fprintln(os.Stderr, "---")
+	var fullResponse strings.Builder
+
+	err := a.client.Generate(ctx, llm.GenerateRequest{
+		Model:  a.model,
+		System: system,
+		Prompt: user,
+	}, func(chunk string) {
+		fmt.Print(chunk)
+		fullResponse.WriteString(chunk)
+	})
+	fmt.Println()
+
+	if err != nil {
+		return err
+	}
+
+	a.offerToSaveCodeBlocks(fullResponse.String())
+	return nil
+}
+
 func (a *App) gatherContext(ctx context.Context, workDir string) []mcp.ContextResult {
 	var results []mcp.ContextResult
 	for _, p := range a.providers {
